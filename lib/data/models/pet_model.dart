@@ -4,9 +4,9 @@ class PetModel {
   final String breed;
   final String type;
   final DateTime? birthday;
-  final String gender;             // 'Male' | 'Female'
-  final String size;               // 'Small' | 'Medium' | 'Large' | 'Extra Large'
-  final List<String> personalities; // multi-select from AppConstants.petPersonalities
+  final String gender;             // Display value: 'Male' | 'Female'
+  final String size;               // Local-only: 'Small' | 'Medium' | 'Large' | 'Extra Large'
+  final List<String> personalities; // Maps to API field 'personality'
   final String? photoUrl;
   final String? notes;
 
@@ -23,7 +23,7 @@ class PetModel {
     this.notes,
   });
 
-  // ── Derived helpers ────────────────────────────────────────────────────────
+  // ── Derived helpers ─────────────────────────────────────────────────────────
   String get emoji {
     switch (type.toLowerCase()) {
       case 'cat':    return '🐱';
@@ -50,11 +50,10 @@ class PetModel {
     return '$years yr $rem mo';
   }
 
-  /// Returns personality labels joined, e.g. "Playful • Energetic"
   String get personalityDisplay =>
       personalities.isEmpty ? 'No personality set' : personalities.join(' • ');
 
-  // ── copyWith ───────────────────────────────────────────────────────────────
+  // ── copyWith ────────────────────────────────────────────────────────────────
   PetModel copyWith({
     String? id,
     String? name,
@@ -81,14 +80,15 @@ class PetModel {
     );
   }
 
-  // ── JSON ───────────────────────────────────────────────────────────────────
+  // ── Local JSON (SharedPreferences cache) ─────────────────────────────────────
+  // Preserves all fields including 'size' which the server doesn't store.
   Map<String, dynamic> toJson() => {
     'id':             id,
     'name':           name,
     'breed':          breed,
     'type':           type,
     'birthday':       birthday?.toIso8601String(),
-    'gender':         gender,
+    'gender':         gender,          // stored capitalized locally
     'size':           size,
     'personalities':  personalities,
     'photoUrl':       photoUrl,
@@ -96,19 +96,52 @@ class PetModel {
   };
 
   factory PetModel.fromJson(Map<String, dynamic> json) => PetModel(
-    id:             json['id']    ?? '',
-    name:           json['name']  ?? '',
-    breed:          json['breed'] ?? '',
-    type:           json['type']  ?? 'Dog',
-    birthday:       json['birthday'] != null
-        ? DateTime.tryParse(json['birthday'])
+    // Server returns integer id; local cache stores it as a string.
+    id:   json['id']?.toString() ?? '',
+    name:  json['name']  ?? '',
+    breed: json['breed'] ?? '',
+    type:  json['type']  ?? 'Dog',
+    birthday: json['birthday'] != null
+        ? DateTime.tryParse(json['birthday'].toString())
         : null,
-    gender:         json['gender'] ?? 'Male',
-    size:           json['size']   ?? 'Medium',
-    personalities:  (json['personalities'] as List<dynamic>?)
-        ?.map((e) => e.toString())
-        .toList() ?? [],
-    photoUrl:       json['photoUrl'],
-    notes:          json['notes'],
+    // Server sends lowercase ('male'/'female'); normalise to title-case for UI.
+    gender: _normaliseGender(json['gender']),
+    size:   json['size'] ?? 'Medium',
+    // Server field is 'personality' (array); local cache uses 'personalities'.
+    personalities: _parsePersonalities(json),
+    photoUrl: json['photoUrl'] as String?,
+    notes:    json['notes']    as String?,
   );
+
+  // ── API payload (POST to server) ─────────────────────────────────────────────
+  // Sends only the fields the Laravel controller accepts.
+  Map<String, dynamic> toApiJson() => {
+    'name':        name,
+    'type':        type,
+    if (breed.isNotEmpty) 'breed': breed,
+    if (birthday != null)
+      'birthday':
+      '${birthday!.year}-${birthday!.month.toString().padLeft(2, '0')}-${birthday!.day.toString().padLeft(2, '0')}',
+    // Server expects lowercase gender
+    'gender': gender.toLowerCase(),
+    if (personalities.isNotEmpty) 'personality': personalities,
+    if (notes != null && notes!.isNotEmpty) 'notes': notes,
+  };
+
+  // ─── Helpers ─────────────────────────────────────────────────────────────────
+
+  /// Accepts 'male', 'Male', 'MALE' → returns 'Male'.
+  static String _normaliseGender(dynamic raw) {
+    if (raw == null) return 'Male';
+    final s = raw.toString().trim();
+    if (s.isEmpty) return 'Male';
+    return '${s[0].toUpperCase()}${s.substring(1).toLowerCase()}';
+  }
+
+  /// Server key is 'personality'; local cache key is 'personalities'.
+  static List<String> _parsePersonalities(Map<String, dynamic> json) {
+    final raw = json['personality'] ?? json['personalities'];
+    if (raw is List) return raw.map((e) => e.toString()).toList();
+    return [];
+  }
 }

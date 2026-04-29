@@ -25,6 +25,7 @@ class AppConstants {
   static const String keyUserName = 'user_name';
   static const String keyUserPhone = 'user_phone';
   static const String keyUserId = 'user_id';
+  static const String keyAuthToken = 'auth_token';
 
   // Services
   static const List<Map<String, dynamic>> services = [

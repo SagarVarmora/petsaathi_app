@@ -49,8 +49,10 @@ class AppRouter {
         GoRoute(
           path: AppConstants.routeOtp,
           builder: (context, state) {
-            final phone = state.extra as String? ?? '';
-            return OtpScreen(phone: phone);
+            final extra = state.extra as Map<String, dynamic>? ?? {};
+            final phone = extra['phone'] as String? ?? '';
+            final flow  = extra['flow']  as String? ?? 'login';
+            return OtpScreen(phone: phone, flow: flow);
           },
         ),
         GoRoute(

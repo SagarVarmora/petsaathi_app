@@ -7,21 +7,35 @@ import '../../../data/repositories/auth_repository.dart';
 import '../../../data/repositories/pet_repository.dart';
 import '../../widgets/common/common_widgets.dart';
 
-class HomeScreen extends StatelessWidget {
+class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
 
   @override
+  State<HomeScreen> createState() => _HomeScreenState();
+}
+
+class _HomeScreenState extends State<HomeScreen> {
+  @override
+  void initState() {
+    super.initState();
+    // Fetch pets from API when home screen opens
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      context.read<PetRepository>().fetchPets();
+    });
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final auth = context.watch<AuthRepository>();
+    final auth    = context.watch<AuthRepository>();
     final petRepo = context.watch<PetRepository>();
-    final pets = petRepo.pets;
-    final firstName = auth.userName.split(' ').first;
+    final pets    = petRepo.pets;
+    final firstName  = auth.userName.split(' ').first;
     final primaryPet = pets.isNotEmpty ? pets.first : null;
 
     return Scaffold(
       backgroundColor: AppTheme.background,
 
-      // ── Normal AppBar ────────────────────────────────────────────────────
+      // ── AppBar ──────────────────────────────────────────────────────────────
       appBar: AppBar(
         backgroundColor: AppTheme.primary,
         elevation: 0,
@@ -41,7 +55,7 @@ class HomeScreen extends StatelessWidget {
             Text(
               primaryPet != null
                   ? 'How can we care for ${primaryPet.name} today?'
-                  : 'Welcome to PetCare 🐾',
+                  : 'Welcome to PetSaathi 🐾',
               style: TextStyle(
                 fontSize: 13,
                 color: Colors.white.withOpacity(0.85),
@@ -51,6 +65,24 @@ class HomeScreen extends StatelessWidget {
           ],
         ),
         actions: [
+          // Refresh pets
+          if (petRepo.isLoading)
+            const Padding(
+              padding: EdgeInsets.only(right: 16),
+              child: Center(
+                child: SizedBox(
+                  width: 18,
+                  height: 18,
+                  child: CircularProgressIndicator(
+                      strokeWidth: 2, color: Colors.white),
+                ),
+              ),
+            )
+          else
+            IconButton(
+              icon: const Icon(Icons.refresh_rounded, color: Colors.white),
+              onPressed: () => context.read<PetRepository>().fetchPets(),
+            ),
           Padding(
             padding: const EdgeInsets.only(right: 16),
             child: Container(
@@ -81,7 +113,7 @@ class HomeScreen extends StatelessWidget {
         ],
       ),
 
-      // ── Body ─────────────────────────────────────────────────────────────
+      // ── Body ────────────────────────────────────────────────────────────────
       body: SingleChildScrollView(
         padding: const EdgeInsets.symmetric(horizontal: 20),
         child: Column(
@@ -89,7 +121,7 @@ class HomeScreen extends StatelessWidget {
           children: [
             const SizedBox(height: 24),
 
-            // My Pets
+            // ── My Pets ──────────────────────────────────────────────────────
             SectionHeader(
               title: 'My Pets',
               actionLabel: 'Add another pet',
@@ -97,7 +129,7 @@ class HomeScreen extends StatelessWidget {
             ),
             const SizedBox(height: 14),
 
-            if (pets.isEmpty)
+            if (pets.isEmpty && !petRepo.isLoading)
               GestureDetector(
                 onTap: () => context.push(AppConstants.routeAddPet),
                 child: Container(
@@ -134,7 +166,8 @@ class HomeScreen extends StatelessWidget {
                                   fontSize: 15,
                                 )),
                             SizedBox(height: 2),
-                            Text('Set up a profile for your furry friend',
+                            Text(
+                                'Set up a profile for your furry friend',
                                 style: TextStyle(
                                   fontSize: 13,
                                   color: AppTheme.textSecondary,
@@ -187,9 +220,9 @@ class HomeScreen extends StatelessWidget {
                     }
                     final pet = pets[i];
                     return PetAvatarCard(
-                      name: pet.name,
-                      breed: pet.breed,
-                      emoji: pet.emoji,
+                      name:     pet.name,
+                      breed:    pet.breed,
+                      emoji:    pet.emoji,
                       photoUrl: pet.photoUrl,
                       onTap: () => context.push(
                           '${AppConstants.routePetDetail}/${pet.id}'),
@@ -200,15 +233,15 @@ class HomeScreen extends StatelessWidget {
 
             const SizedBox(height: 28),
 
-            // Services
+            // ── Services ─────────────────────────────────────────────────────
             const SectionHeader(title: 'Our Services'),
             const SizedBox(height: 14),
 
             ...AppConstants.services.map(
                   (s) => ServiceCard(
                 service: s,
-                onTap: () => context
-                    .push('${AppConstants.routeBooking}/${s['id']}'),
+                onTap: () =>
+                    context.push('${AppConstants.routeBooking}/${s['id']}'),
               ),
             ),
 

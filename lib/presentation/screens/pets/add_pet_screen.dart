@@ -15,18 +15,18 @@ class AddPetScreen extends StatefulWidget {
 }
 
 class _AddPetScreenState extends State<AddPetScreen> {
-  final _formKey        = GlobalKey<FormState>();
-  final _nameController = TextEditingController();
-  final _breedController = TextEditingController();
+  final _formKey           = GlobalKey<FormState>();
+  final _nameController    = TextEditingController();
+  final _breedController   = TextEditingController();
   final _birthdayController = TextEditingController();
-  final _notesController = TextEditingController();
+  final _notesController   = TextEditingController();
 
+  String _selectedType   = 'Dog';
   String _selectedGender = 'Male';
   String _selectedSize   = 'Medium';
   DateTime? _birthday;
   bool _isLoading = false;
 
-  // Personality: multi-select (store selected labels)
   final Set<String> _selectedPersonalities = {};
 
   @override
@@ -70,30 +70,42 @@ class _AddPetScreenState extends State<AddPetScreen> {
     setState(() => _isLoading = true);
 
     final pet = PetModel(
-      id:             'pet_${DateTime.now().millisecondsSinceEpoch}',
-      name:           _nameController.text.trim(),
-      breed:          _breedController.text.trim(),
-      type:           'Dog', // default; can be inferred from breed later
-      birthday:       _birthday,
-      gender:         _selectedGender,
-      size:           _selectedSize,
-      personalities:  _selectedPersonalities.toList(),
-      notes:          _notesController.text.trim().isEmpty
+      id:            '', // Server will assign the real ID
+      name:          _nameController.text.trim(),
+      breed:         _breedController.text.trim(),
+      type:          _selectedType,
+      birthday:      _birthday,
+      gender:        _selectedGender,
+      size:          _selectedSize,
+      personalities: _selectedPersonalities.toList(),
+      notes:         _notesController.text.trim().isEmpty
           ? null
           : _notesController.text.trim(),
     );
 
-    await context.read<PetRepository>().addPet(pet);
+    final result = await context.read<PetRepository>().addPet(pet);
     setState(() => _isLoading = false);
-
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('${pet.name} added successfully! 🐾'),
-        backgroundColor: AppTheme.primary,
-      ),
-    );
-    context.pop();
+
+    if (result.isSuccess) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('${result.pet?.name ?? pet.name} added successfully! 🐾'),
+          backgroundColor: AppTheme.primary,
+        ),
+      );
+      context.pop();
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(result.error ?? 'Failed to add pet. Please try again.'),
+          backgroundColor: AppTheme.error,
+          behavior: SnackBarBehavior.floating,
+          margin: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+        ),
+      );
+    }
   }
 
   @override
@@ -113,14 +125,21 @@ class _AddPetScreenState extends State<AddPetScreen> {
           padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
           children: [
 
-            // ── Info Banner ───────────────────────────────────────────────
+            // ── Info Banner ────────────────────────────────────────────────
             const InfoBanner(
               message:
               'Basic profile is required before booking. You can add more details later.',
             ),
             const SizedBox(height: 24),
 
-            // ── Pet Name ──────────────────────────────────────────────────
+            // ── Pet Type ────────────────────────────────────────────────────
+            _label('Pet Type *'),
+            const SizedBox(height: 10),
+            _buildTypeSelector(),
+
+            const SizedBox(height: 20),
+
+            // ── Pet Name ────────────────────────────────────────────────────
             _label('Pet Name *'),
             const SizedBox(height: 10),
             TextFormField(
@@ -128,23 +147,20 @@ class _AddPetScreenState extends State<AddPetScreen> {
               textCapitalization: TextCapitalization.words,
               decoration: const InputDecoration(hintText: 'e.g., Buddy'),
               validator: (v) =>
-              v == null || v.isEmpty ? 'Pet name is required' : null,
+              (v == null || v.trim().isEmpty) ? 'Pet name is required' : null,
             ),
 
             const SizedBox(height: 20),
 
-            // ── Breed ─────────────────────────────────────────────────────
-            _label('Breed *'),
+            // ── Breed ───────────────────────────────────────────────────────
+            _label('Breed'),
             const SizedBox(height: 10),
             Autocomplete<String>(
               optionsBuilder: (text) {
-                final all = [
-                  ...AppConstants.dogBreeds,
-                  ...AppConstants.catBreeds,
-                ];
+                final all = _breedsForType(_selectedType);
                 if (text.text.isEmpty) return all;
-                return all.where((b) =>
-                    b.toLowerCase().contains(text.text.toLowerCase()));
+                return all
+                    .where((b) => b.toLowerCase().contains(text.text.toLowerCase()));
               },
               onSelected: (val) => _breedController.text = val,
               fieldViewBuilder: (context, controller, focusNode, onSubmit) {
@@ -153,18 +169,20 @@ class _AddPetScreenState extends State<AddPetScreen> {
                   controller: controller,
                   focusNode: focusNode,
                   textCapitalization: TextCapitalization.words,
-                  decoration: const InputDecoration(
-                    hintText: 'e.g., Golden Retriever',
+                  decoration: InputDecoration(
+                    hintText: _selectedType == 'Dog'
+                        ? 'e.g., Golden Retriever'
+                        : _selectedType == 'Cat'
+                        ? 'e.g., Persian'
+                        : 'Enter breed (optional)',
                   ),
-                  validator: (v) =>
-                  v == null || v.isEmpty ? 'Breed is required' : null,
                 );
               },
             ),
 
             const SizedBox(height: 20),
 
-            // ── Birthday ──────────────────────────────────────────────────
+            // ── Birthday ────────────────────────────────────────────────────
             _label('Birthday *'),
             const SizedBox(height: 10),
             TextFormField(
@@ -173,16 +191,16 @@ class _AddPetScreenState extends State<AddPetScreen> {
               onTap: _pickDate,
               decoration: const InputDecoration(
                 hintText: 'YYYY-MM-DD',
-                suffixIcon: Icon(Icons.calendar_today_outlined,
-                    color: AppTheme.primary),
+                suffixIcon:
+                Icon(Icons.calendar_today_outlined, color: AppTheme.primary),
               ),
               validator: (v) =>
-              v == null || v.isEmpty ? 'Birthday is required' : null,
+              (v == null || v.isEmpty) ? 'Birthday is required' : null,
             ),
 
             const SizedBox(height: 20),
 
-            // ── Gender ────────────────────────────────────────────────────
+            // ── Gender ──────────────────────────────────────────────────────
             _label('Gender *'),
             const SizedBox(height: 10),
             Row(
@@ -209,8 +227,13 @@ class _AddPetScreenState extends State<AddPetScreen> {
 
             const SizedBox(height: 20),
 
-            // ── Size ──────────────────────────────────────────────────────
-            _label('Size *'),
+            // ── Size ────────────────────────────────────────────────────────
+            _label('Size'),
+            const SizedBox(height: 4),
+            const Text(
+              'Stored locally — helps caretakers prepare.',
+              style: TextStyle(fontSize: 12, color: AppTheme.textSecondary),
+            ),
             const SizedBox(height: 10),
             Row(
               children: AppConstants.petSizes.map((size) {
@@ -228,18 +251,14 @@ class _AddPetScreenState extends State<AddPetScreen> {
                         color: selected ? AppTheme.primary : Colors.white,
                         borderRadius: BorderRadius.circular(10),
                         border: Border.all(
-                          color: selected
-                              ? AppTheme.primary
-                              : AppTheme.inputBorder,
+                          color: selected ? AppTheme.primary : AppTheme.inputBorder,
                           width: 1.5,
                         ),
                       ),
                       child: Column(
                         children: [
-                          Text(
-                            _sizeEmoji(size),
-                            style: const TextStyle(fontSize: 18),
-                          ),
+                          Text(_sizeEmoji(size),
+                              style: const TextStyle(fontSize: 18)),
                           const SizedBox(height: 4),
                           Text(
                             size,
@@ -261,14 +280,14 @@ class _AddPetScreenState extends State<AddPetScreen> {
 
             const SizedBox(height: 24),
 
-            // ── Personality ───────────────────────────────────────────────
+            // ── Personality ─────────────────────────────────────────────────
             Row(
               children: [
                 _label('Personality'),
                 const SizedBox(width: 6),
                 Container(
-                  padding: const EdgeInsets.symmetric(
-                      horizontal: 8, vertical: 2),
+                  padding:
+                  const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
                   decoration: BoxDecoration(
                     color: AppTheme.primarySurface,
                     borderRadius: BorderRadius.circular(20),
@@ -291,7 +310,6 @@ class _AddPetScreenState extends State<AddPetScreen> {
             ),
             const SizedBox(height: 12),
 
-            // Personality grid
             Wrap(
               spacing: 8,
               runSpacing: 8,
@@ -312,8 +330,7 @@ class _AddPetScreenState extends State<AddPetScreen> {
                       } else {
                         ScaffoldMessenger.of(context).showSnackBar(
                           const SnackBar(
-                            content: Text(
-                                'You can select up to 4 personalities'),
+                            content: Text('You can select up to 4 personalities'),
                             duration: Duration(seconds: 1),
                           ),
                         );
@@ -324,17 +341,16 @@ class _AddPetScreenState extends State<AddPetScreen> {
               }).toList(),
             ),
 
-            // Selected preview
             if (_selectedPersonalities.isNotEmpty) ...[
               const SizedBox(height: 12),
               Container(
-                padding: const EdgeInsets.symmetric(
-                    horizontal: 12, vertical: 10),
+                padding:
+                const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
                 decoration: BoxDecoration(
                   color: AppTheme.primarySurface,
                   borderRadius: BorderRadius.circular(10),
-                  border: Border.all(
-                      color: AppTheme.primary.withOpacity(0.2)),
+                  border:
+                  Border.all(color: AppTheme.primary.withOpacity(0.2)),
                 ),
                 child: Row(
                   children: [
@@ -358,7 +374,7 @@ class _AddPetScreenState extends State<AddPetScreen> {
 
             const SizedBox(height: 20),
 
-            // ── Notes ─────────────────────────────────────────────────────
+            // ── Notes ───────────────────────────────────────────────────────
             _label('Additional Notes (optional)'),
             const SizedBox(height: 10),
             TextFormField(
@@ -372,7 +388,7 @@ class _AddPetScreenState extends State<AddPetScreen> {
 
             const SizedBox(height: 32),
 
-            // ── Save Button ───────────────────────────────────────────────
+            // ── Save Button ─────────────────────────────────────────────────
             PrimaryButton(
               label: 'Save Pet Profile',
               onPressed: _save,
@@ -386,13 +402,87 @@ class _AddPetScreenState extends State<AddPetScreen> {
     );
   }
 
+  // ── Pet type selector ──────────────────────────────────────────────────────
+  Widget _buildTypeSelector() {
+    final types = AppConstants.petTypes; // ['Dog','Cat','Bird','Rabbit','Fish','Other']
+    return SizedBox(
+      height: 72,
+      child: ListView.separated(
+        scrollDirection: Axis.horizontal,
+        itemCount: types.length,
+        separatorBuilder: (_, __) => const SizedBox(width: 8),
+        itemBuilder: (_, i) {
+          final t        = types[i];
+          final selected = _selectedType == t;
+          return GestureDetector(
+            onTap: () => setState(() {
+              _selectedType = t;
+              // Clear breed when type changes
+              _breedController.clear();
+            }),
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 200),
+              width: 72,
+              decoration: BoxDecoration(
+                color: selected ? AppTheme.primary : Colors.white,
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(
+                  color: selected ? AppTheme.primary : AppTheme.inputBorder,
+                  width: 1.5,
+                ),
+              ),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Text(_typeEmoji(t), style: const TextStyle(fontSize: 22)),
+                  const SizedBox(height: 4),
+                  Text(
+                    t,
+                    style: TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w600,
+                      color: selected ? Colors.white : AppTheme.textSecondary,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  // ─── Helpers ────────────────────────────────────────────────────────────────
+  List<String> _breedsForType(String type) {
+    switch (type) {
+      case 'Dog':
+        return AppConstants.dogBreeds;
+      case 'Cat':
+        return AppConstants.catBreeds;
+      default:
+        return [];
+    }
+  }
+
+  String _typeEmoji(String type) {
+    switch (type.toLowerCase()) {
+      case 'dog':    return '🐶';
+      case 'cat':    return '🐱';
+      case 'bird':   return '🐦';
+      case 'rabbit': return '🐰';
+      case 'fish':   return '🐟';
+      default:       return '🐾';
+    }
+  }
+
   String _sizeEmoji(String size) {
     switch (size) {
-      case 'Small':      return '🐩';
-      case 'Medium':     return '🐕';
-      case 'Large':      return '🦮';
+      case 'Small':       return '🐩';
+      case 'Medium':      return '🐕';
+      case 'Large':       return '🦮';
       case 'Extra Large': return '🐘';
-      default:           return '🐾';
+      default:            return '🐾';
     }
   }
 
@@ -406,7 +496,7 @@ class _AddPetScreenState extends State<AddPetScreen> {
   );
 }
 
-// ── Gender Button ─────────────────────────────────────────────────────────────
+// ── Gender Button ──────────────────────────────────────────────────────────────
 class _GenderButton extends StatelessWidget {
   final String label;
   final IconData icon;
@@ -438,11 +528,9 @@ class _GenderButton extends StatelessWidget {
         child: Row(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(
-              icon,
-              size: 20,
-              color: selected ? Colors.white : AppTheme.textSecondary,
-            ),
+            Icon(icon,
+                size: 20,
+                color: selected ? Colors.white : AppTheme.textSecondary),
             const SizedBox(width: 6),
             Text(
               label,
@@ -459,7 +547,7 @@ class _GenderButton extends StatelessWidget {
   }
 }
 
-// ── Personality Chip ──────────────────────────────────────────────────────────
+// ── Personality Chip ───────────────────────────────────────────────────────────
 class _PersonalityChip extends StatelessWidget {
   final String emoji;
   final String label;

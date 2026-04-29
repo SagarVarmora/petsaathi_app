@@ -6,13 +6,72 @@ import '../../../core/theme/app_theme.dart';
 import '../../../data/repositories/pet_repository.dart';
 import '../../widgets/common/common_widgets.dart';
 
-class PetDetailScreen extends StatelessWidget {
+class PetDetailScreen extends StatefulWidget {
   final String petId;
   const PetDetailScreen({super.key, required this.petId});
 
   @override
+  State<PetDetailScreen> createState() => _PetDetailScreenState();
+}
+
+class _PetDetailScreenState extends State<PetDetailScreen> {
+  bool _isDeleting = false;
+
+  @override
+  void initState() {
+    super.initState();
+    // Refresh pet detail from API
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      context.read<PetRepository>().fetchPetDetail(widget.petId);
+    });
+  }
+
+  Future<void> _confirmDelete(BuildContext context) async {
+    final pet = context.read<PetRepository>().getPetById(widget.petId);
+    if (pet == null) return;
+
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: Text('Remove ${pet.name}?'),
+        content: const Text(
+            "This will permanently delete your pet's profile."),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Remove',
+                style: TextStyle(color: Colors.red)),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm != true || !mounted) return;
+
+    setState(() => _isDeleting = true);
+    final result =
+    await context.read<PetRepository>().deletePet(widget.petId);
+    if (!mounted) return;
+    setState(() => _isDeleting = false);
+
+    if (result.isSuccess) {
+      context.pop();
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(result.error ?? 'Failed to delete pet.'),
+        backgroundColor: AppTheme.error,
+      ));
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final pet = context.watch<PetRepository>().getPetById(petId);
+    final pet = context.watch<PetRepository>().getPetById(widget.petId);
 
     if (pet == null) {
       return Scaffold(
@@ -34,6 +93,7 @@ class PetDetailScreen extends StatelessWidget {
       backgroundColor: AppTheme.background,
       body: CustomScrollView(
         slivers: [
+          // ── Sliver App Bar ─────────────────────────────────────────────────
           SliverAppBar(
             backgroundColor: AppTheme.primary,
             expandedHeight: 200,
@@ -47,40 +107,27 @@ class PetDetailScreen extends StatelessWidget {
               IconButton(
                 icon: const Icon(Icons.edit_outlined, color: Colors.white),
                 onPressed: () {
-                  // Edit pet — can push edit screen
+                  // TODO: push edit pet screen
                 },
               ),
-              IconButton(
-                icon:
-                const Icon(Icons.delete_outline, color: Colors.white),
-                onPressed: () async {
-                  final confirm = await showDialog<bool>(
-                    context: context,
-                    builder: (ctx) => AlertDialog(
-                      title: Text('Remove ${pet.name}?'),
-                      content: const Text(
-                          'This will permanently delete your pet\'s profile.'),
-                      actions: [
-                        TextButton(
-                          onPressed: () => Navigator.pop(ctx, false),
-                          child: const Text('Cancel'),
-                        ),
-                        TextButton(
-                          onPressed: () => Navigator.pop(ctx, true),
-                          child: const Text('Remove',
-                              style: TextStyle(color: Colors.red)),
-                        ),
-                      ],
+              if (_isDeleting)
+                const Padding(
+                  padding: EdgeInsets.only(right: 16),
+                  child: Center(
+                    child: SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(
+                          strokeWidth: 2, color: Colors.white),
                     ),
-                  );
-                  if (confirm == true && context.mounted) {
-                    await context
-                        .read<PetRepository>()
-                        .deletePet(pet.id);
-                    context.pop();
-                  }
-                },
-              ),
+                  ),
+                )
+              else
+                IconButton(
+                  icon: const Icon(Icons.delete_outline,
+                      color: Colors.white),
+                  onPressed: () => _confirmDelete(context),
+                ),
             ],
             flexibleSpace: FlexibleSpaceBar(
               background: Container(
@@ -123,13 +170,14 @@ class PetDetailScreen extends StatelessWidget {
             ),
           ),
 
+          // ── Content ────────────────────────────────────────────────────────
           SliverToBoxAdapter(
             child: Padding(
               padding: const EdgeInsets.all(20),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // ── Quick Info Row ───────────────────────────────────────
+                  // ── Quick info tiles ───────────────────────────────────────
                   Row(
                     children: [
                       _InfoTile(
@@ -151,7 +199,7 @@ class PetDetailScreen extends StatelessWidget {
                     ],
                   ),
 
-                  // ── Personality ──────────────────────────────────────
+                  // ── Personality ────────────────────────────────────────────
                   if (pet.personalities.isNotEmpty) ...[
                     const SizedBox(height: 20),
                     const Text('Personality',
@@ -167,7 +215,8 @@ class PetDetailScreen extends StatelessWidget {
                       children: pet.personalities.map((p) {
                         final match = AppConstants.petPersonalities
                             .firstWhere((m) => m['label'] == p,
-                            orElse: () => {'emoji': '🐾', 'label': p});
+                            orElse: () =>
+                            {'emoji': '🐾', 'label': p});
                         return Container(
                           padding: const EdgeInsets.symmetric(
                               horizontal: 12, vertical: 7),
@@ -196,6 +245,7 @@ class PetDetailScreen extends StatelessWidget {
                     ),
                   ],
 
+                  // ── Notes ──────────────────────────────────────────────────
                   if (pet.notes != null && pet.notes!.isNotEmpty) ...[
                     const SizedBox(height: 20),
                     const Text('Notes',
@@ -210,8 +260,7 @@ class PetDetailScreen extends StatelessWidget {
                       decoration: BoxDecoration(
                         color: Colors.white,
                         borderRadius: BorderRadius.circular(12),
-                        border:
-                        Border.all(color: AppTheme.divider),
+                        border: Border.all(color: AppTheme.divider),
                       ),
                       child: Text(
                         pet.notes!,
@@ -225,7 +274,7 @@ class PetDetailScreen extends StatelessWidget {
 
                   const SizedBox(height: 24),
 
-                  // ── Book a Service ───────────────────────────────────────
+                  // ── Book a Service ─────────────────────────────────────────
                   const Text('Book a Service',
                       style: TextStyle(
                         fontSize: 16,

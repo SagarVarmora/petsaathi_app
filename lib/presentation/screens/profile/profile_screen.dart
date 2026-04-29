@@ -6,15 +6,101 @@ import '../../../core/theme/app_theme.dart';
 import '../../../data/repositories/auth_repository.dart';
 import '../../../data/repositories/booking_repository.dart';
 import '../../../data/repositories/pet_repository.dart';
+import '../../../data/models/customer_profile_model.dart';
 
-class ProfileScreen extends StatelessWidget {
+class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key});
+
+  @override
+  State<ProfileScreen> createState() => _ProfileScreenState();
+}
+
+class _ProfileScreenState extends State<ProfileScreen> {
+  bool _isLoadingProfile = false;
+
+  @override
+  void initState() {
+    super.initState();
+    // Fetch fresh profile on screen open
+    WidgetsBinding.instance.addPostFrameCallback((_) => _refreshProfile());
+  }
+
+  Future<void> _refreshProfile() async {
+    if (!mounted) return;
+    setState(() => _isLoadingProfile = true);
+    await context.read<AuthRepository>().fetchProfile();
+    if (mounted) setState(() => _isLoadingProfile = false);
+  }
+
+  // ─── Delete Account Dialog ─────────────────────────────────────────────────
+  Future<void> _showDeleteDialog() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        icon: const Icon(Icons.warning_amber_rounded,
+            color: AppTheme.error, size: 44),
+        title: const Text(
+          'Delete Account?',
+          textAlign: TextAlign.center,
+          style: TextStyle(fontWeight: FontWeight.w800),
+        ),
+        content: const Text(
+          'This will permanently delete your account, pets, and all bookings. This action cannot be undone.',
+          textAlign: TextAlign.center,
+          style: TextStyle(
+              fontSize: 14, color: AppTheme.textSecondary, height: 1.5),
+        ),
+        actionsAlignment: MainAxisAlignment.center,
+        actions: [
+          Row(
+            children: [
+              Expanded(
+                child: OutlinedButton(
+                  onPressed: () => Navigator.pop(ctx, false),
+                  child: const Text('Cancel'),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: ElevatedButton(
+                  onPressed: () => Navigator.pop(ctx, true),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppTheme.error,
+                  ),
+                  child: const Text('Delete'),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+        ],
+      ),
+    );
+
+    if (confirmed == true && mounted) {
+      final auth = context.read<AuthRepository>();
+      final response = await auth.deleteAccount();
+
+      if (!mounted) return;
+
+      if (response.success) {
+        context.go(AppConstants.routeLogin);
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(response.errorMessage),
+          backgroundColor: AppTheme.error,
+        ));
+      }
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
     final auth = context.watch<AuthRepository>();
     final petRepo = context.watch<PetRepository>();
     final bookingRepo = context.watch<BookingRepository>();
+    final profile = auth.profile;
 
     return Scaffold(
       backgroundColor: AppTheme.background,
@@ -22,6 +108,24 @@ class ProfileScreen extends StatelessWidget {
         title: const Text('Profile'),
         automaticallyImplyLeading: false,
         actions: [
+          if (_isLoadingProfile)
+            const Padding(
+              padding: EdgeInsets.only(right: 16),
+              child: Center(
+                child: SizedBox(
+                  width: 18,
+                  height: 18,
+                  child: CircularProgressIndicator(
+                      strokeWidth: 2, color: AppTheme.primary),
+                ),
+              ),
+            )
+          else
+            IconButton(
+              icon: const Icon(Icons.refresh_rounded),
+              tooltip: 'Refresh',
+              onPressed: _refreshProfile,
+            ),
           IconButton(
             icon: const Icon(Icons.edit_outlined),
             onPressed: () => context.push(AppConstants.routeEditProfile),
@@ -31,62 +135,12 @@ class ProfileScreen extends StatelessWidget {
       body: ListView(
         padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
         children: [
-          // ── Avatar + Name ──────────────────────────────────────────────
-          Center(
-            child: Column(
-              children: [
-                Container(
-                  width: 88,
-                  height: 88,
-                  decoration: BoxDecoration(
-                    color: AppTheme.primarySurface,
-                    shape: BoxShape.circle,
-                    border: Border.all(color: AppTheme.primary, width: 3),
-                    boxShadow: [
-                      BoxShadow(
-                        color: AppTheme.primary.withOpacity(0.2),
-                        blurRadius: 12,
-                        offset: const Offset(0, 4),
-                      ),
-                    ],
-                  ),
-                  child: Center(
-                    child: Text(
-                      auth.userName.isNotEmpty
-                          ? auth.userName[0].toUpperCase()
-                          : '?',
-                      style: const TextStyle(
-                        fontSize: 38,
-                        fontWeight: FontWeight.w800,
-                        color: AppTheme.primary,
-                      ),
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 14),
-                Text(
-                  auth.userName,
-                  style: const TextStyle(
-                    fontSize: 20,
-                    fontWeight: FontWeight.w800,
-                    color: AppTheme.textPrimary,
-                  ),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  '+91 ${auth.userPhone}',
-                  style: const TextStyle(
-                    fontSize: 14,
-                    color: AppTheme.textSecondary,
-                  ),
-                ),
-              ],
-            ),
-          ),
+          // ── Avatar + Name ──────────────────────────────────────────────────
+          _buildAvatarSection(auth, profile),
 
           const SizedBox(height: 24),
 
-          // ── Stats ──────────────────────────────────────────────────────
+          // ── Stats ──────────────────────────────────────────────────────────
           Row(
             children: [
               _StatCard(
@@ -104,7 +158,7 @@ class ProfileScreen extends StatelessWidget {
               _StatCard(
                 label: 'Completed',
                 value:
-                    '${bookingRepo.pastBookings.where((b) => b.status.name == 'completed').length}',
+                '${bookingRepo.pastBookings.where((b) => b.status.name == 'completed').length}',
                 icon: Icons.check_circle_rounded,
               ),
             ],
@@ -112,9 +166,21 @@ class ProfileScreen extends StatelessWidget {
 
           const SizedBox(height: 24),
 
-          // ── My Pets ────────────────────────────────────────────────────
+          // ── Contact Info ───────────────────────────────────────────────────
+          if (profile != null) _buildContactCard(profile),
+
+          const SizedBox(height: 16),
+
+          // ── Bank Details (if set) ──────────────────────────────────────────
+          if (profile?.primaryBank != null &&
+              profile!.primaryBank!.hasDetails) ...[
+            _buildBankCard(profile.primaryBank!),
+            const SizedBox(height: 16),
+          ],
+
+          // ── My Pets ────────────────────────────────────────────────────────
           _SectionCard(
-            title: 'My Pets',
+            title: 'MY PETS',
             children: [
               if (petRepo.pets.isEmpty)
                 _MenuItem(
@@ -125,7 +191,7 @@ class ProfileScreen extends StatelessWidget {
                 )
               else
                 ...petRepo.pets.map(
-                  (pet) => _MenuItem(
+                      (pet) => _MenuItem(
                     icon: Icons.pets_rounded,
                     label: '${pet.emoji}  ${pet.name} · ${pet.breed}',
                     onTap: () => context.push(
@@ -143,9 +209,9 @@ class ProfileScreen extends StatelessWidget {
 
           const SizedBox(height: 16),
 
-          // ── Account ────────────────────────────────────────────────────
+          // ── Account Settings ───────────────────────────────────────────────
           _SectionCard(
-            title: 'Account',
+            title: 'ACCOUNT',
             children: [
               _MenuItem(
                 icon: Icons.person_outline_rounded,
@@ -172,7 +238,7 @@ class ProfileScreen extends StatelessWidget {
 
           const SizedBox(height: 16),
 
-          // ── Logout ─────────────────────────────────────────────────────
+          // ── Logout ─────────────────────────────────────────────────────────
           _SectionCard(
             children: [
               _MenuItem(
@@ -183,8 +249,8 @@ class ProfileScreen extends StatelessWidget {
                     context: context,
                     builder: (ctx) => AlertDialog(
                       title: const Text('Log Out?'),
-                      content: const Text(
-                          'Are you sure you want to log out?'),
+                      content:
+                      const Text('Are you sure you want to log out?'),
                       actions: [
                         TextButton(
                           onPressed: () => Navigator.pop(ctx, false),
@@ -209,19 +275,218 @@ class ProfileScreen extends StatelessWidget {
             ],
           ),
 
+          const SizedBox(height: 12),
+
+          // ── Delete Account ─────────────────────────────────────────────────
+          _SectionCard(
+            children: [
+              _MenuItem(
+                icon: Icons.delete_forever_rounded,
+                label: 'Delete Account',
+                sublabel: 'Permanently delete your account and data',
+                onTap: _showDeleteDialog,
+                iconColor: AppTheme.error,
+                labelColor: AppTheme.error,
+              ),
+            ],
+          ),
+
           const SizedBox(height: 32),
           const Center(
             child: Text('PetSaathi v1.0.0',
-                style: TextStyle(
-                    fontSize: 12, color: AppTheme.textHint)),
+                style: TextStyle(fontSize: 12, color: AppTheme.textHint)),
           ),
           const SizedBox(height: 24),
         ],
       ),
     );
   }
+
+  // ─── Avatar Section ────────────────────────────────────────────────────────
+  Widget _buildAvatarSection(AuthRepository auth, CustomerProfile? profile) {
+    return Center(
+      child: Column(
+        children: [
+          GestureDetector(
+            onTap: () => context.push(AppConstants.routeEditProfile),
+            child: Container(
+              width: 88,
+              height: 88,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                border: Border.all(color: AppTheme.primary, width: 3),
+                boxShadow: [
+                  BoxShadow(
+                    color: AppTheme.primary.withOpacity(0.2),
+                    blurRadius: 12,
+                    offset: const Offset(0, 4),
+                  ),
+                ],
+              ),
+              child: ClipOval(
+                child: _buildProfileImage(auth, profile),
+              ),
+            ),
+          ),
+          const SizedBox(height: 14),
+          Text(
+            profile?.name ?? auth.userName,
+            style: const TextStyle(
+              fontSize: 20,
+              fontWeight: FontWeight.w800,
+              color: AppTheme.textPrimary,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            '+91 ${profile?.mobile ?? auth.userPhone}',
+            style:
+            const TextStyle(fontSize: 14, color: AppTheme.textSecondary),
+          ),
+          if (profile?.email != null && profile!.email!.isNotEmpty) ...[
+            const SizedBox(height: 2),
+            Text(
+              profile.email!,
+              style: const TextStyle(
+                  fontSize: 13, color: AppTheme.textSecondary),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildProfileImage(AuthRepository auth, CustomerProfile? profile) {
+    final imgUrl = profile?.profileImageUrl ?? profile?.profileImage;
+    if (imgUrl != null && imgUrl.isNotEmpty) {
+      return Image.network(imgUrl,
+          fit: BoxFit.cover,
+          width: 88,
+          height: 88,
+          errorBuilder: (_, __, ___) => _avatarFallback(auth, profile));
+    }
+    return _avatarFallback(auth, profile);
+  }
+
+  Widget _avatarFallback(AuthRepository auth, CustomerProfile? profile) {
+    final name = profile?.name ?? auth.userName;
+    final parts = name.trim().split(' ');
+    String initials = name.isNotEmpty ? name[0].toUpperCase() : '?';
+    if (parts.length >= 2 && parts[1].isNotEmpty) {
+      initials = '${parts[0][0]}${parts[1][0]}'.toUpperCase();
+    }
+    return Container(
+      width: 88,
+      height: 88,
+      color: AppTheme.primarySurface,
+      child: Center(
+        child: Text(initials,
+            style: const TextStyle(
+              fontSize: 34,
+              fontWeight: FontWeight.w800,
+              color: AppTheme.primary,
+            )),
+      ),
+    );
+  }
+
+  // ─── Contact Info Card ─────────────────────────────────────────────────────
+  Widget _buildContactCard(CustomerProfile profile) {
+    return _SectionCard(
+      title: 'CONTACT INFO',
+      children: [
+        if (profile.email != null && profile.email!.isNotEmpty)
+          _InfoRow(
+              icon: Icons.email_outlined,
+              label: 'Email',
+              value: profile.email!),
+        _InfoRow(
+            icon: Icons.phone_outlined,
+            label: 'Mobile',
+            value: '+91 ${profile.mobile}'),
+        if (profile.address != null && profile.address!.isNotEmpty)
+          _InfoRow(
+              icon: Icons.location_on_outlined,
+              label: 'Address',
+              value: profile.address!),
+      ],
+    );
+  }
+
+  // ─── Bank Card ─────────────────────────────────────────────────────────────
+  Widget _buildBankCard(BankAccount bank) {
+    return _SectionCard(
+      title: 'PAYMENT DETAILS',
+      children: [
+        if (bank.bankName != null && bank.bankName!.isNotEmpty)
+          _InfoRow(
+              icon: Icons.account_balance_outlined,
+              label: 'Bank',
+              value: bank.bankName!),
+        if (bank.accountNo != null && bank.accountNo!.isNotEmpty)
+          _InfoRow(
+              icon: Icons.credit_card_outlined,
+              label: 'Account',
+              value: _maskAccount(bank.accountNo!)),
+        if (bank.ifscCode != null && bank.ifscCode!.isNotEmpty)
+          _InfoRow(
+              icon: Icons.code_rounded,
+              label: 'IFSC',
+              value: bank.ifscCode!),
+        if (bank.upiId != null && bank.upiId!.isNotEmpty)
+          _InfoRow(
+              icon: Icons.payment_outlined,
+              label: 'UPI',
+              value: bank.upiId!),
+      ],
+    );
+  }
+
+  String _maskAccount(String acc) {
+    if (acc.length <= 4) return acc;
+    return '${'•' * (acc.length - 4)}${acc.substring(acc.length - 4)}';
+  }
 }
 
+// ─── Info Row ─────────────────────────────────────────────────────────────────
+class _InfoRow extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final String value;
+
+  const _InfoRow(
+      {required this.icon, required this.label, required this.value});
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      child: Row(
+        children: [
+          Icon(icon, color: AppTheme.primary, size: 20),
+          const SizedBox(width: 12),
+          Text(label,
+              style: const TextStyle(
+                  fontSize: 13, color: AppTheme.textSecondary)),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              value,
+              textAlign: TextAlign.end,
+              style: const TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.w600,
+                color: AppTheme.textPrimary,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ─── Stat Card ────────────────────────────────────────────────────────────────
 class _StatCard extends StatelessWidget {
   final String label;
   final String value;
@@ -260,6 +525,7 @@ class _StatCard extends StatelessWidget {
   }
 }
 
+// ─── Section Card ─────────────────────────────────────────────────────────────
 class _SectionCard extends StatelessWidget {
   final String? title;
   final List<Widget> children;
@@ -279,11 +545,10 @@ class _SectionCard extends StatelessWidget {
         children: [
           if (title != null)
             Padding(
-              padding:
-                  const EdgeInsets.fromLTRB(16, 14, 16, 4),
+              padding: const EdgeInsets.fromLTRB(16, 14, 16, 4),
               child: Text(title!,
                   style: const TextStyle(
-                    fontSize: 12,
+                    fontSize: 11,
                     fontWeight: FontWeight.w700,
                     color: AppTheme.textSecondary,
                     letterSpacing: 0.8,
@@ -296,9 +561,11 @@ class _SectionCard extends StatelessWidget {
   }
 }
 
+// ─── Menu Item ────────────────────────────────────────────────────────────────
 class _MenuItem extends StatelessWidget {
   final IconData icon;
   final String label;
+  final String? sublabel;
   final VoidCallback? onTap;
   final Color? iconColor;
   final Color? labelColor;
@@ -306,6 +573,7 @@ class _MenuItem extends StatelessWidget {
   const _MenuItem({
     required this.icon,
     required this.label,
+    this.sublabel,
     this.onTap,
     this.iconColor,
     this.labelColor,
@@ -323,13 +591,22 @@ class _MenuItem extends StatelessWidget {
             Icon(icon, color: iconColor ?? AppTheme.textSecondary, size: 20),
             const SizedBox(width: 12),
             Expanded(
-              child: Text(
-                label,
-                style: TextStyle(
-                  fontSize: 14,
-                  fontWeight: FontWeight.w500,
-                  color: labelColor ?? AppTheme.textPrimary,
-                ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(label,
+                      style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w500,
+                        color: labelColor ?? AppTheme.textPrimary,
+                      )),
+                  if (sublabel != null) ...[
+                    const SizedBox(height: 2),
+                    Text(sublabel!,
+                        style: const TextStyle(
+                            fontSize: 12, color: AppTheme.textSecondary)),
+                  ],
+                ],
               ),
             ),
             Icon(Icons.chevron_right_rounded,

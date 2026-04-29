@@ -36,7 +36,8 @@ class _LoginScreenState extends State<LoginScreen>
     _slideAnim = Tween<Offset>(
       begin: const Offset(0, 0.08),
       end: Offset.zero,
-    ).animate(CurvedAnimation(parent: _animController, curve: Curves.easeOut));
+    ).animate(
+        CurvedAnimation(parent: _animController, curve: Curves.easeOut));
     _animController.forward();
   }
 
@@ -47,23 +48,101 @@ class _LoginScreenState extends State<LoginScreen>
     super.dispose();
   }
 
-  Future<void> _sendOtp() async {
+  // ─── Main Action: Phone number check ──────────────────────────────────────
+  Future<void> _continue() async {
     if (!_formKey.currentState!.validate()) return;
     setState(() => _isLoading = true);
 
+    final phone = _phoneController.text.trim();
     final auth = context.read<AuthRepository>();
-    final ok = await auth.sendOtp(_phoneController.text.trim());
+
+    // Step 1: Check karo user existing hai ya new
+    final result = await auth.checkUser(phone: phone);
 
     setState(() => _isLoading = false);
     if (!mounted) return;
 
-    if (ok) {
-      context.push(AppConstants.routeOtp, extra: _phoneController.text.trim());
+    if (result.hasError) {
+      final msg = result.errorMsg ?? 'Something went wrong. Please try again.';
+      final lowerMsg = msg.toLowerCase();
+      final bool isAccountBlocked = lowerMsg.contains('deleted') ||
+          lowerMsg.contains('banned') || lowerMsg.contains('suspended') ||
+          lowerMsg.contains('support') || lowerMsg.contains('block');
+      if (isAccountBlocked) {
+        _showAccountErrorDialog(msg);
+      } else {
+        _showError(msg);
+      }
+      return;
+    }
+
+    if (result.isExisting) {
+      // Existing user → OTP already sent by checkUser (login API)
+      // OTP screen pe jao with flow = login
+      context.push(
+        AppConstants.routeOtp,
+        extra: {
+          'phone': phone,
+          'flow': 'login', // login flow
+        },
+      );
     } else {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Failed to send OTP. Please try again.')),
+      // New user → Registration ke liye naam lena hoga pehle
+      context.push(
+        AppConstants.routeSetupName,
+        extra: phone,
       );
     }
+  }
+
+  void _showError(String msg) {
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      content: Text(msg),
+      backgroundColor: AppTheme.error,
+      behavior: SnackBarBehavior.floating,
+      margin: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+    ));
+  }
+
+  void _showAccountErrorDialog(String msg) {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        icon: const Icon(Icons.block_rounded, color: AppTheme.error, size: 44),
+        title: const Text(
+          'Account Unavailable',
+          textAlign: TextAlign.center,
+          style: TextStyle(fontWeight: FontWeight.w800, fontSize: 18),
+        ),
+        content: Text(
+          msg,
+          textAlign: TextAlign.center,
+          style: const TextStyle(
+            fontSize: 14,
+            color: AppTheme.textSecondary,
+            height: 1.5,
+          ),
+        ),
+        actionsAlignment: MainAxisAlignment.center,
+        actions: [
+          Padding(
+            padding: const EdgeInsets.only(bottom: 8),
+            child: ElevatedButton(
+              onPressed: () => Navigator.pop(ctx),
+              style: ElevatedButton.styleFrom(
+                minimumSize: const Size(160, 46),
+                shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12)),
+              ),
+              child: const Text('OK'),
+            ),
+          ),
+        ],
+      ),
+    );
   }
 
   @override
@@ -84,7 +163,7 @@ class _LoginScreenState extends State<LoginScreen>
                   children: [
                     const SizedBox(height: 48),
 
-                    // ── Logo ─────────────────────────────────────────────────
+                    // ── Logo ────────────────────────────────────────────────
                     Center(
                       child: Column(
                         children: [
@@ -103,8 +182,8 @@ class _LoginScreenState extends State<LoginScreen>
                               ],
                             ),
                             child: const Center(
-                              child:
-                                  Text('🐾', style: TextStyle(fontSize: 40)),
+                              child: Text('🐾',
+                                  style: TextStyle(fontSize: 40)),
                             ),
                           ),
                           const SizedBox(height: 16),
@@ -130,7 +209,7 @@ class _LoginScreenState extends State<LoginScreen>
 
                     const SizedBox(height: 48),
 
-                    // ── Phone Input ───────────────────────────────────────────
+                    // ── Phone Input ──────────────────────────────────────────
                     const Text(
                       'Enter your phone number',
                       style: TextStyle(
@@ -163,7 +242,7 @@ class _LoginScreenState extends State<LoginScreen>
                           ),
                         ),
                         prefixIconConstraints:
-                            BoxConstraints(minWidth: 60, minHeight: 54),
+                        BoxConstraints(minWidth: 60, minHeight: 54),
                       ),
                       validator: (val) {
                         if (val == null || val.isEmpty) {
@@ -177,7 +256,7 @@ class _LoginScreenState extends State<LoginScreen>
                     ),
                     const SizedBox(height: 8),
                     const Text(
-                      "We'll send you a verification code",
+                      "We'll send you a WhatsApp verification code",
                       style: TextStyle(
                         fontSize: 12,
                         color: AppTheme.textSecondary,
@@ -186,21 +265,23 @@ class _LoginScreenState extends State<LoginScreen>
 
                     const SizedBox(height: 24),
 
-                    // ── Send OTP Button ───────────────────────────────────────
+                    // ── Continue Button ──────────────────────────────────────
                     PrimaryButton(
-                      label: 'Send OTP',
-                      onPressed: _sendOtp,
+                      label: 'Continue',
+                      onPressed: _continue,
                       isLoading: _isLoading,
+                      icon: Icons.arrow_forward_rounded,
                     ),
 
                     const SizedBox(height: 24),
 
-                    // ── Divider ───────────────────────────────────────────────
+                    // ── Divider ──────────────────────────────────────────────
                     Row(
                       children: [
                         const Expanded(child: Divider()),
                         Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 12),
+                          padding:
+                          const EdgeInsets.symmetric(horizontal: 12),
                           child: Text(
                             'or continue with',
                             style: TextStyle(
@@ -215,7 +296,7 @@ class _LoginScreenState extends State<LoginScreen>
 
                     const SizedBox(height: 24),
 
-                    // ── Google Sign In ────────────────────────────────────────
+                    // ── Google Sign In ───────────────────────────────────────
                     OutlinedIconButton(
                       label: 'Continue with Google',
                       icon: const Text('G',
@@ -227,15 +308,15 @@ class _LoginScreenState extends State<LoginScreen>
                       onPressed: () {
                         ScaffoldMessenger.of(context).showSnackBar(
                           const SnackBar(
-                              content: Text(
-                                  'Google Sign-In — coming soon!')),
+                              content:
+                              Text('Google Sign-In — coming soon!')),
                         );
                       },
                     ),
 
                     const SizedBox(height: 32),
 
-                    // ── Terms ─────────────────────────────────────────────────
+                    // ── Terms ────────────────────────────────────────────────
                     Center(
                       child: RichText(
                         textAlign: TextAlign.center,

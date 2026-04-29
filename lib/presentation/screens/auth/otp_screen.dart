@@ -8,9 +8,19 @@ import '../../../core/theme/app_theme.dart';
 import '../../../data/repositories/auth_repository.dart';
 import '../../widgets/common/common_widgets.dart';
 
+// ─── Flow Types ───────────────────────────────────────────────────────────────
+// 'login'    → existing user, /login/verify-otp
+// 'register' → new user, /verify-otp
+
 class OtpScreen extends StatefulWidget {
   final String phone;
-  const OtpScreen({super.key, required this.phone});
+  final String flow; // 'login' | 'register'
+
+  const OtpScreen({
+    super.key,
+    required this.phone,
+    this.flow = 'login',
+  });
 
   @override
   State<OtpScreen> createState() => _OtpScreenState();
@@ -21,10 +31,11 @@ class _OtpScreenState extends State<OtpScreen> {
   final _pinFocusNode = FocusNode();
 
   bool _isLoading = false;
+  bool _hasError = false;
   int _resendSeconds = 30;
   Timer? _timer;
 
-  // ── Pinput Theme ────────────────────────────────────────────────────────────
+  // ─── Pinput Themes ──────────────────────────────────────────────────────────
   PinTheme get _defaultPinTheme => PinTheme(
     width: 46,
     height: 54,
@@ -50,10 +61,10 @@ class _OtpScreenState extends State<OtpScreen> {
   );
 
   PinTheme get _errorPinTheme => _defaultPinTheme.copyDecorationWith(
-    border: Border.all(color: Colors.redAccent, width: 1.5),
+    border: Border.all(color: AppTheme.error, width: 1.5),
+    color: AppTheme.error.withOpacity(0.06),
   );
 
-  // ── Lifecycle ───────────────────────────────────────────────────────────────
   @override
   void initState() {
     super.initState();
@@ -71,7 +82,7 @@ class _OtpScreenState extends State<OtpScreen> {
     super.dispose();
   }
 
-  // ── Timer ───────────────────────────────────────────────────────────────────
+  // ─── Timer ──────────────────────────────────────────────────────────────────
   void _startTimer() {
     _timer?.cancel();
     setState(() => _resendSeconds = 30);
@@ -84,7 +95,7 @@ class _OtpScreenState extends State<OtpScreen> {
     });
   }
 
-  // ── OTP Verify ──────────────────────────────────────────────────────────────
+  // ─── Verify OTP ─────────────────────────────────────────────────────────────
   Future<void> _verify() async {
     final otp = _pinController.text;
     if (otp.length < 6) {
@@ -94,35 +105,72 @@ class _OtpScreenState extends State<OtpScreen> {
       return;
     }
 
-    setState(() => _isLoading = true);
+    setState(() {
+      _isLoading = true;
+      _hasError = false;
+    });
 
     final auth = context.read<AuthRepository>();
-    final ok = await auth.verifyOtp(widget.phone, otp);
+
+    // Flow ke hisaab se API call
+    final response = widget.flow == 'login'
+        ? await auth.verifyLoginOtp(phone: widget.phone, otp: otp)
+        : await auth.verifyRegisterOtp(phone: widget.phone, otp: otp);
 
     setState(() => _isLoading = false);
     if (!mounted) return;
 
-    if (ok) {
-      context.pushReplacement(AppConstants.routeSetupName, extra: widget.phone);
+    if (response.success) {
+      // Session save ho gaya, home pe redirect
+      context.go(AppConstants.routeHome);
     } else {
+      // Error — OTP clear karo
+      setState(() => _hasError = true);
       _pinController.clear();
       _pinFocusNode.requestFocus();
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Invalid code. Please try again.')),
+        SnackBar(
+          content: Text(response.errorMessage),
+          backgroundColor: AppTheme.error,
+        ),
       );
     }
   }
 
-  // ── Resend OTP ──────────────────────────────────────────────────────────────
-  void _resendOtp() {
-    _startTimer();
-    context.read<AuthRepository>().sendOtp(widget.phone);
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('OTP resent!')),
-    );
+  // ─── Resend OTP ──────────────────────────────────────────────────────────────
+  Future<void> _resendOtp() async {
+    final auth = context.read<AuthRepository>();
+
+    setState(() => _hasError = false);
+
+    if (widget.flow == 'login') {
+      // Login resend
+      final response = await auth.loginAndSendOtp(phone: widget.phone);
+      if (mounted) {
+        if (response.success) {
+          _startTimer();
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('OTP resent via WhatsApp!')),
+          );
+        } else {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(response.errorMessage),
+              backgroundColor: AppTheme.error,
+            ),
+          );
+        }
+      }
+    } else {
+      // Register resend — user wapas setup name screen pe jayega
+      _startTimer();
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please try registering again.')),
+      );
+    }
   }
 
-  // ── Build ───────────────────────────────────────────────────────────────────
+  // ─── Build ───────────────────────────────────────────────────────────────────
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -153,7 +201,17 @@ class _OtpScreenState extends State<OtpScreen> {
                   isLoading: _isLoading,
                 ),
                 const SizedBox(height: 16),
-                _buildDemoHint(),
+                // Test mode hint
+                Center(
+                  child: Text(
+                    'Test number: 9664675200 → OTP: 123456',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: Colors.orange.shade600,
+                      fontStyle: FontStyle.italic,
+                    ),
+                  ),
+                ),
               ],
             ),
           ),
@@ -162,7 +220,7 @@ class _OtpScreenState extends State<OtpScreen> {
     );
   }
 
-  // ── UI Sections ─────────────────────────────────────────────────────────────
+  // ─── UI Sections ─────────────────────────────────────────────────────────────
 
   Widget _buildHeader() {
     return Center(
@@ -196,11 +254,29 @@ class _OtpScreenState extends State<OtpScreen> {
             ),
           ),
           const SizedBox(height: 8),
-          Text(
-            'We sent a code to +91 ${widget.phone}',
-            style: const TextStyle(
-              fontSize: 14,
-              color: AppTheme.textSecondary,
+          RichText(
+            textAlign: TextAlign.center,
+            text: TextSpan(
+              style: const TextStyle(
+                fontSize: 14,
+                color: AppTheme.textSecondary,
+              ),
+              children: [
+                const TextSpan(text: 'Code sent to +91 '),
+                TextSpan(
+                  text: widget.phone,
+                  style: const TextStyle(
+                    fontWeight: FontWeight.w700,
+                    color: AppTheme.textPrimary,
+                  ),
+                ),
+                TextSpan(
+                  text: widget.flow == 'register'
+                      ? '\n(via WhatsApp)'
+                      : '\n(via WhatsApp)',
+                  style: const TextStyle(fontSize: 12),
+                ),
+              ],
             ),
           ),
         ],
@@ -216,7 +292,8 @@ class _OtpScreenState extends State<OtpScreen> {
         focusNode: _pinFocusNode,
         defaultPinTheme: _defaultPinTheme,
         focusedPinTheme: _focusedPinTheme,
-        submittedPinTheme: _submittedPinTheme,
+        submittedPinTheme:
+        _hasError ? _errorPinTheme : _submittedPinTheme,
         errorPinTheme: _errorPinTheme,
         keyboardType: TextInputType.number,
         autofocus: true,
@@ -257,19 +334,6 @@ class _OtpScreenState extends State<OtpScreen> {
             fontWeight: FontWeight.w700,
             color: AppTheme.primary,
           ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildDemoHint() {
-    return Center(
-      child: Text(
-        'Demo Mode: Enter any 6-digit code',
-        style: TextStyle(
-          fontSize: 12,
-          color: Colors.orange.shade600,
-          fontStyle: FontStyle.italic,
         ),
       ),
     );
