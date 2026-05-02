@@ -42,13 +42,40 @@ class CustomerProfile {
 
   // ── JSON ───────────────────────────────────────────────────────────────────
   factory CustomerProfile.fromJson(Map<String, dynamic> json) {
-    final banks = (json['bank_accounts'] as List<dynamic>? ?? [])
-        .map((b) => BankAccount.fromJson(b as Map<String, dynamic>))
-        .toList();
+    // API may return bank_accounts as a list (old shape) OR as flat top-level
+    // fields (new shape: bank_name, account_number, ifsc_code, upi_id …)
+    List<BankAccount> banks = [];
+
+    final rawBanks = json['bank_accounts'];
+    if (rawBanks is List && rawBanks.isNotEmpty) {
+      banks = rawBanks
+          .whereType<Map<String, dynamic>>()
+          .map((b) => BankAccount.fromJson(b))
+          .toList();
+    } else {
+      // Flat profile response — build a single BankAccount from top-level keys
+      final hasBankData = (json['bank_name'] ?? json['account_number'] ??
+          json['account_holder_name'] ?? json['ifsc_code'] ??
+          json['upi_id']) != null;
+      if (hasBankData) {
+        banks = [
+          BankAccount(
+            id: 0,
+            customerId: _parseInt(json['id']) ?? 0,
+            bankName: json['bank_name'] as String?,
+            accountNo: json['account_number'] as String?,
+            ifscCode: json['ifsc_code'] as String?,
+            upiId: json['upi_id'] as String?,
+            holderName: json['account_holder_name'] as String?,
+            isPrimary: true,
+          ),
+        ];
+      }
+    }
 
     return CustomerProfile(
-      id: json['id'] as int? ?? 0,
-      userId: json['user_id'] as int? ?? 0,
+      id: _parseInt(json['id']) ?? 0,
+      userId: _parseInt(json['user_id']) ?? 0,
       name: json['name'] as String? ?? '',
       email: json['email'] as String?,
       mobile: json['mobile'] as String? ?? '',
@@ -57,6 +84,14 @@ class CustomerProfile {
       profileImageUrl: json['profile_image_url'] as String?,
       bankAccounts: banks,
     );
+  }
+
+  static int? _parseInt(dynamic v) {
+    if (v == null) return null;
+    if (v is int) return v;
+    if (v is double) return v.toInt();
+    if (v is String) return int.tryParse(v);
+    return null;
   }
 
   CustomerProfile copyWith({

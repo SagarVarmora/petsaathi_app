@@ -4,6 +4,8 @@ import 'package:provider/provider.dart';
 import '../../../core/constants/app_constants.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../data/repositories/pet_repository.dart';
+import '../../../data/repositories/category_repository.dart';
+import '../../../data/models/category_model.dart';
 import '../../widgets/common/common_widgets.dart';
 
 class PetDetailScreen extends StatefulWidget {
@@ -20,9 +22,13 @@ class _PetDetailScreenState extends State<PetDetailScreen> {
   @override
   void initState() {
     super.initState();
-    // Refresh pet detail from API
     WidgetsBinding.instance.addPostFrameCallback((_) {
       context.read<PetRepository>().fetchPetDetail(widget.petId);
+      // Fetch categories if not already loaded
+      final catRepo = context.read<CategoryRepository>();
+      if (catRepo.categories.isEmpty && !catRepo.isLoading) {
+        catRepo.fetchCategories();
+      }
     });
   }
 
@@ -72,6 +78,7 @@ class _PetDetailScreenState extends State<PetDetailScreen> {
   @override
   Widget build(BuildContext context) {
     final pet = context.watch<PetRepository>().getPetById(widget.petId);
+    final catRepo = context.watch<CategoryRepository>();
 
     if (pet == null) {
       return Scaffold(
@@ -274,21 +281,73 @@ class _PetDetailScreenState extends State<PetDetailScreen> {
 
                   const SizedBox(height: 24),
 
-                  // ── Book a Service ─────────────────────────────────────────
-                  const Text('Book a Service',
-                      style: TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.w700,
-                        color: AppTheme.textPrimary,
-                      )),
-                  const SizedBox(height: 12),
-                  ...AppConstants.services.map(
-                        (s) => ServiceCard(
-                      service: s,
-                      onTap: () => context.push(
-                          '${AppConstants.routeBooking}/${s['id']}'),
-                    ),
+                  // ── Book a Service (Dynamic) ────────────────────────────────
+                  Row(
+                    children: [
+                      const Text(
+                        'Book a Service',
+                        style: TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.w700,
+                          color: AppTheme.textPrimary,
+                        ),
+                      ),
+                      const Spacer(),
+                      if (catRepo.isLoading)
+                        const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: AppTheme.primary),
+                        )
+                      else
+                        GestureDetector(
+                          onTap: () => catRepo.fetchCategories(),
+                          child: const Icon(Icons.refresh_rounded,
+                              color: AppTheme.primary, size: 20),
+                        ),
+                    ],
                   ),
+                  const SizedBox(height: 12),
+
+                  // Loading skeleton
+                  if (catRepo.isLoading && catRepo.categories.isEmpty)
+                    _buildServiceSkeleton()
+
+                  // Error state
+                  else if (catRepo.categories.isEmpty &&
+                      catRepo.error != null)
+                    InfoBanner(
+                      message:
+                      'Could not load services. Tap refresh to try again.',
+                      backgroundColor: Colors.orange.shade50,
+                      iconColor: Colors.orange,
+                    )
+
+                  // Empty
+                  else if (catRepo.categories.isEmpty)
+                      const InfoBanner(
+                          message: 'No services available at the moment.')
+
+                    // Dynamic category cards — same as HomeScreen
+                    else
+                      ...catRepo.categories.map(
+                            (cat) => _CategoryCard(
+                          category: cat,
+                          onSubCategoryTap: (subCat) => context.push(
+                            '${AppConstants.routeBooking}/${subCat.id}',
+                            extra: {
+                              'subCategoryId': subCat.id,
+                              'subCategoryName': subCat.name,
+                              'categoryName': cat.name,
+                              'categoryEmoji': cat.emoji,
+                            },
+                          ),
+                        ),
+                      ),
+
+                  const SizedBox(height: 24),
                 ],
               ),
             ),
@@ -297,8 +356,27 @@ class _PetDetailScreenState extends State<PetDetailScreen> {
       ),
     );
   }
+
+  Widget _buildServiceSkeleton() {
+    return Column(
+      children: List.generate(
+        3,
+            (i) => Container(
+          margin: const EdgeInsets.only(bottom: 12),
+          height: 80,
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: AppTheme.divider),
+          ),
+          child: const _ShimmerBox(),
+        ),
+      ),
+    );
+  }
 }
 
+// ── Info Tile ─────────────────────────────────────────────────────────────────
 class _InfoTile extends StatelessWidget {
   final IconData icon;
   final String label;
@@ -333,6 +411,271 @@ class _InfoTile extends StatelessWidget {
                   color: AppTheme.textSecondary,
                 )),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+// ── Category Card (expandable) — mirrors HomeScreen ───────────────────────────
+class _CategoryCard extends StatefulWidget {
+  final MainCategory category;
+  final void Function(SubCategory) onSubCategoryTap;
+
+  const _CategoryCard({
+    required this.category,
+    required this.onSubCategoryTap,
+  });
+
+  @override
+  State<_CategoryCard> createState() => _CategoryCardState();
+}
+
+class _CategoryCardState extends State<_CategoryCard>
+    with SingleTickerProviderStateMixin {
+  bool _expanded = false;
+  late AnimationController _animController;
+  late Animation<double> _expandAnim;
+
+  @override
+  void initState() {
+    super.initState();
+    _animController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 250),
+    );
+    _expandAnim = CurvedAnimation(
+      parent: _animController,
+      curve: Curves.easeInOut,
+    );
+  }
+
+  @override
+  void dispose() {
+    _animController.dispose();
+    super.dispose();
+  }
+
+  void _toggle() {
+    setState(() => _expanded = !_expanded);
+    _expanded ? _animController.forward() : _animController.reverse();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final cat = widget.category;
+    final hasSubCategories = cat.subCategories.isNotEmpty;
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: _expanded
+              ? AppTheme.primary.withOpacity(0.4)
+              : AppTheme.divider,
+          width: _expanded ? 1.5 : 1,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.04),
+            blurRadius: 8,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Column(
+        children: [
+          // ── Header ────────────────────────────────────────────────────────
+          InkWell(
+            onTap: hasSubCategories ? _toggle : null,
+            borderRadius: BorderRadius.circular(16),
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Row(
+                children: [
+                  Container(
+                    width: 52,
+                    height: 52,
+                    decoration: BoxDecoration(
+                      color: AppTheme.primarySurface,
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Center(
+                      child: Text(cat.emoji,
+                          style: const TextStyle(fontSize: 26)),
+                    ),
+                  ),
+                  const SizedBox(width: 14),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          cat.name,
+                          style: const TextStyle(
+                            fontSize: 15,
+                            fontWeight: FontWeight.w700,
+                            color: AppTheme.textPrimary,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          hasSubCategories
+                              ? '${cat.subCategories.length} services available'
+                              : 'Tap to explore',
+                          style: const TextStyle(
+                            fontSize: 12,
+                            color: AppTheme.textSecondary,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  if (hasSubCategories)
+                    AnimatedRotation(
+                      turns: _expanded ? 0.5 : 0,
+                      duration: const Duration(milliseconds: 250),
+                      child: const Icon(
+                        Icons.keyboard_arrow_down_rounded,
+                        color: AppTheme.primary,
+                        size: 24,
+                      ),
+                    )
+                  else
+                    const Icon(Icons.arrow_forward_ios_rounded,
+                        size: 14, color: AppTheme.textHint),
+                ],
+              ),
+            ),
+          ),
+
+          // ── Sub-categories ────────────────────────────────────────────────
+          if (hasSubCategories)
+            SizeTransition(
+              sizeFactor: _expandAnim,
+              child: Column(
+                children: [
+                  const Divider(height: 1, indent: 16, endIndent: 16),
+                  const SizedBox(height: 8),
+                  ...cat.subCategories.map(
+                        (sub) => _SubCategoryTile(
+                      subCategory: sub,
+                      onTap: () => widget.onSubCategoryTap(sub),
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                ],
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+// ── Sub-category Tile ─────────────────────────────────────────────────────────
+class _SubCategoryTile extends StatelessWidget {
+  final SubCategory subCategory;
+  final VoidCallback onTap;
+
+  const _SubCategoryTile({
+    required this.subCategory,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: onTap,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+        child: Row(
+          children: [
+            Container(
+              width: 36,
+              height: 36,
+              decoration: BoxDecoration(
+                color: AppTheme.primarySurface,
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: const Center(
+                child: Icon(Icons.pets_rounded,
+                    color: AppTheme.primary, size: 18),
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                subCategory.name,
+                style: const TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w600,
+                  color: AppTheme.textPrimary,
+                ),
+              ),
+            ),
+            Container(
+              padding:
+              const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+              decoration: BoxDecoration(
+                color: AppTheme.primary,
+                borderRadius: BorderRadius.circular(20),
+              ),
+              child: const Text(
+                'Book',
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w700,
+                  color: Colors.white,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ── Shimmer placeholder ───────────────────────────────────────────────────────
+class _ShimmerBox extends StatefulWidget {
+  const _ShimmerBox();
+
+  @override
+  State<_ShimmerBox> createState() => _ShimmerBoxState();
+}
+
+class _ShimmerBoxState extends State<_ShimmerBox>
+    with SingleTickerProviderStateMixin {
+  late AnimationController _ctrl;
+  late Animation<double> _anim;
+
+  @override
+  void initState() {
+    super.initState();
+    _ctrl = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1200),
+    )..repeat(reverse: true);
+    _anim = Tween<double>(begin: 0.4, end: 1.0).animate(_ctrl);
+  }
+
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return FadeTransition(
+      opacity: _anim,
+      child: Container(
+        decoration: BoxDecoration(
+          color: AppTheme.divider,
+          borderRadius: BorderRadius.circular(16),
         ),
       ),
     );

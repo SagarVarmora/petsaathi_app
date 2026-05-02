@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 import '../../data/repositories/auth_repository.dart';
+import '../../presentation/payment/payment_screen.dart';
 import '../../presentation/screens/auth/login_screen.dart';
 import '../../presentation/screens/auth/otp_screen.dart';
 import '../../presentation/screens/auth/setup_name_screen.dart';
@@ -13,6 +14,7 @@ import '../../presentation/screens/bookings/booking_screen.dart';
 import '../../presentation/screens/bookings/booking_confirm_screen.dart';
 import '../../presentation/screens/profile/profile_screen.dart';
 import '../../presentation/screens/profile/edit_profile_screen.dart';
+import '../../presentation/screens/wallet/wallet_screen.dart';
 import '../constants/app_constants.dart';
 
 class AppRouter {
@@ -51,7 +53,7 @@ class AppRouter {
           builder: (context, state) {
             final extra = state.extra as Map<String, dynamic>? ?? {};
             final phone = extra['phone'] as String? ?? '';
-            final flow  = extra['flow']  as String? ?? 'login';
+            final flow = extra['flow'] as String? ?? 'login';
             return OtpScreen(phone: phone, flow: flow);
           },
         ),
@@ -79,6 +81,10 @@ class AppRouter {
               path: AppConstants.routeProfile,
               builder: (context, state) => const ProfileScreen(),
             ),
+            GoRoute(
+              path: AppConstants.routeWallet,
+              builder: (context, state) => const WalletScreen(),
+            ),
           ],
         ),
 
@@ -95,7 +101,7 @@ class AppRouter {
           },
         ),
 
-        // ── Services & Booking ───────────────────────────────────────────────
+        // ── Booking Flow ────────────────────────────────────────────────────
         GoRoute(
           path: '${AppConstants.routeBooking}/:serviceId',
           builder: (context, state) {
@@ -111,7 +117,16 @@ class AppRouter {
           },
         ),
 
-        // ── Profile ──────────────────────────────────────────────────────────
+        // ── NEW: Payment Screen ─────────────────────────────────────────────
+        GoRoute(
+          path: AppConstants.routePayment,           // ← Added
+          builder: (context, state) {
+            final data = state.extra as Map<String, dynamic>? ?? {};
+            return PaymentScreen(bookingData: data);
+          },
+        ),
+
+        // ── Profile ─────────────────────────────────────────────────────────
         GoRoute(
           path: AppConstants.routeEditProfile,
           builder: (context, state) => const EditProfileScreen(),

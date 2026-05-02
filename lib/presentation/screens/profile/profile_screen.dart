@@ -6,6 +6,7 @@ import '../../../core/theme/app_theme.dart';
 import '../../../data/repositories/auth_repository.dart';
 import '../../../data/repositories/booking_repository.dart';
 import '../../../data/repositories/pet_repository.dart';
+import '../../../data/repositories/wallet_repository.dart';
 import '../../../data/models/customer_profile_model.dart';
 
 class ProfileScreen extends StatefulWidget {
@@ -21,7 +22,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
   @override
   void initState() {
     super.initState();
-    // Fetch fresh profile on screen open
     WidgetsBinding.instance.addPostFrameCallback((_) => _refreshProfile());
   }
 
@@ -100,6 +100,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
     final auth = context.watch<AuthRepository>();
     final petRepo = context.watch<PetRepository>();
     final bookingRepo = context.watch<BookingRepository>();
+    final walletRepo = context.watch<WalletRepository>();
     final profile = auth.profile;
 
     return Scaffold(
@@ -164,7 +165,12 @@ class _ProfileScreenState extends State<ProfileScreen> {
             ],
           ),
 
-          const SizedBox(height: 24),
+          const SizedBox(height: 16),
+
+          // ── Wallet Balance Banner ──────────────────────────────────────────
+          _buildWalletBanner(walletRepo, auth),
+
+          const SizedBox(height: 16),
 
           // ── Contact Info ───────────────────────────────────────────────────
           if (profile != null) _buildContactCard(profile),
@@ -217,6 +223,11 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 icon: Icons.person_outline_rounded,
                 label: 'Edit Profile',
                 onTap: () => context.push(AppConstants.routeEditProfile),
+              ),
+              // ── Wallet ─────────────────────────────────────────────────────
+              _WalletMenuItem(
+                walletRepo: walletRepo,
+                onTap: () => context.push(AppConstants.routeWallet),
               ),
               _MenuItem(
                 icon: Icons.notifications_outlined,
@@ -298,6 +309,87 @@ class _ProfileScreenState extends State<ProfileScreen> {
           ),
           const SizedBox(height: 24),
         ],
+      ),
+    );
+  }
+
+  // ─── Wallet Balance Banner ──────────────────────────────────────────────────
+  Widget _buildWalletBanner(WalletRepository walletRepo, AuthRepository auth) {
+    return GestureDetector(
+      onTap: () => context.push(AppConstants.routeWallet),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+        decoration: BoxDecoration(
+          gradient: const LinearGradient(
+            colors: [AppTheme.primary, Color(0xFF5B7BFF)],
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+          ),
+          borderRadius: BorderRadius.circular(16),
+          boxShadow: [
+            BoxShadow(
+              color: AppTheme.primary.withOpacity(0.3),
+              blurRadius: 12,
+              offset: const Offset(0, 4),
+            ),
+          ],
+        ),
+        child: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: Colors.white.withOpacity(0.2),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: const Icon(
+                Icons.account_balance_wallet_rounded,
+                color: Colors.white,
+                size: 24,
+              ),
+            ),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'Wallet Balance',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: Colors.white70,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  walletRepo.isLoading && walletRepo.summary == null
+                      ? const SizedBox(
+                    width: 80,
+                    height: 20,
+                    child: LinearProgressIndicator(
+                      backgroundColor: Colors.white24,
+                      valueColor:
+                      AlwaysStoppedAnimation<Color>(Colors.white),
+                    ),
+                  )
+                      : Text(
+                    '₹${walletRepo.balance.toStringAsFixed(2)}',
+                    style: const TextStyle(
+                      fontSize: 22,
+                      fontWeight: FontWeight.w800,
+                      color: Colors.white,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const Icon(
+              Icons.arrow_forward_ios_rounded,
+              color: Colors.white60,
+              size: 16,
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -430,14 +522,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
               value: _maskAccount(bank.accountNo!)),
         if (bank.ifscCode != null && bank.ifscCode!.isNotEmpty)
           _InfoRow(
-              icon: Icons.code_rounded,
-              label: 'IFSC',
-              value: bank.ifscCode!),
+              icon: Icons.code_rounded, label: 'IFSC', value: bank.ifscCode!),
         if (bank.upiId != null && bank.upiId!.isNotEmpty)
           _InfoRow(
-              icon: Icons.payment_outlined,
-              label: 'UPI',
-              value: bank.upiId!),
+              icon: Icons.payment_outlined, label: 'UPI', value: bank.upiId!),
       ],
     );
   }
@@ -445,6 +533,70 @@ class _ProfileScreenState extends State<ProfileScreen> {
   String _maskAccount(String acc) {
     if (acc.length <= 4) return acc;
     return '${'•' * (acc.length - 4)}${acc.substring(acc.length - 4)}';
+  }
+}
+
+// ─── Wallet Menu Item (with live balance chip) ────────────────────────────────
+class _WalletMenuItem extends StatelessWidget {
+  final WalletRepository walletRepo;
+  final VoidCallback onTap;
+
+  const _WalletMenuItem({required this.walletRepo, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(16),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+        child: Row(
+          children: [
+            const Icon(Icons.account_balance_wallet_outlined,
+                color: AppTheme.textSecondary, size: 20),
+            const SizedBox(width: 12),
+            const Expanded(
+              child: Text(
+                'My Wallet',
+                style: TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w500,
+                  color: AppTheme.textPrimary,
+                ),
+              ),
+            ),
+            // Balance chip
+            if (walletRepo.isLoading && walletRepo.summary == null)
+              const SizedBox(
+                width: 14,
+                height: 14,
+                child: CircularProgressIndicator(
+                    strokeWidth: 2, color: AppTheme.primary),
+              )
+            else
+              Container(
+                padding:
+                const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                decoration: BoxDecoration(
+                  color: AppTheme.primarySurface,
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                child: Text(
+                  '₹${walletRepo.balance.toStringAsFixed(2)}',
+                  style: const TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                    color: AppTheme.primary,
+                  ),
+                ),
+              ),
+            const SizedBox(width: 6),
+            const Icon(Icons.chevron_right_rounded,
+                color: AppTheme.textHint, size: 20),
+          ],
+        ),
+      ),
+    );
   }
 }
 

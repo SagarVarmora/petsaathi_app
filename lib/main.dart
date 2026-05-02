@@ -7,6 +7,9 @@ import 'core/utils/app_router.dart';
 import 'data/repositories/auth_repository.dart';
 import 'data/repositories/pet_repository.dart';
 import 'data/repositories/booking_repository.dart';
+import 'data/repositories/category_repository.dart';
+import 'data/repositories/payment_repository.dart';
+import 'data/repositories/wallet_repository.dart';     // ← NEW
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -33,6 +36,9 @@ void main() async {
         ChangeNotifierProvider(create: (_) => AuthRepository(prefs)),
         ChangeNotifierProvider(create: (_) => PetRepository(prefs)),
         ChangeNotifierProvider(create: (_) => BookingRepository(prefs)),
+        ChangeNotifierProvider(create: (_) => CategoryRepository(prefs)),
+        ChangeNotifierProvider(create: (_) => PaymentRepository(prefs)), // ← Added
+        ChangeNotifierProvider(create: (_) => WalletRepository()),
       ],
       child: const PetSaathiApp(),
     ),

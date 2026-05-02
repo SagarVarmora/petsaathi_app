@@ -15,10 +15,12 @@ class AppConstants {
   static const String routePetDetail = '/pet-detail';
   static const String routeServiceDetail = '/service-detail';
   static const String routeBooking = '/booking';
+  static const String routePayment = '/payment';          // ← ADD THIS
   static const String routeBookingConfirm = '/booking-confirm';
   static const String routeBookings = '/bookings';
   static const String routeProfile = '/profile';
   static const String routeEditProfile = '/edit-profile';
+  static const String routeWallet = '/wallet';
 
   // SharedPreferences Keys
   static const String keyIsLoggedIn = 'is_logged_in';
