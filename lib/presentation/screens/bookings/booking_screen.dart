@@ -13,7 +13,7 @@ import '../../../data/repositories/booking_repository.dart';
 import '../../../data/repositories/category_repository.dart';
 import '../../widgets/common/common_widgets.dart';
 
-const String _kPlacesApiKey = 'AIzaSyDgRPH7S23ZXZ9wn0qKIQXLQNctTT2c65I';
+const String _kPlacesApiKey = '';
 
 // ─── Step Index Constants ──────────────────────────────────────────────────
 const int _kStepPet = 0;
